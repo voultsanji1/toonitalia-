@@ -8,7 +8,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
 import okhttp3.Call
 import okhttp3.Callback
@@ -399,11 +401,13 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun playVideoWithReferer(url: String, referer: String) {
-        val mediaItem = MediaItem.Builder()
-            .setUri(Uri.parse(url))
-            .setCustomHeaders(mapOf("Referer" to listOf(referer)))
-            .build()
-        player?.setMediaItem(mediaItem)
+        val dataSourceFactory = DefaultHttpDataSource.Factory()
+            .setRequestProperty("Referer", referer)
+
+        val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+            .createMediaSource(MediaItem.fromUri(Uri.parse(url)))
+
+        player?.setMediaSource(mediaSource)
         player?.prepare()
         player?.playWhenReady = true
 
