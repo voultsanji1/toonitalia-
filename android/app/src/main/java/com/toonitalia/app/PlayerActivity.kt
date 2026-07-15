@@ -329,8 +329,8 @@ class PlayerActivity : ComponentActivity() {
         val patterns = listOf(
             Pattern.compile("file\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
             Pattern.compile("source\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
-            Pattern.compile("video_url\\s*[=:]\s*[\"']?(https?://[^\"'\\s]+)"),
-            Pattern.compile("videoUrl\\s*[=:]\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("video_url\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("videoUrl\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
             Pattern.compile("sources\\s*:\\s*\\[\\s*\"(https?://[^\"]+)\""),
             Pattern.compile("[\"'](https?://[^\"']+\\.m3u8[^\"']*)[\"']"),
             Pattern.compile("[\"'](https?://[^\"']+\\.mp4[^\"']*)[\"']")
