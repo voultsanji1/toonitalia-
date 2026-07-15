@@ -8,8 +8,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -119,7 +119,7 @@ fun MainScreen() {
                         onClick = { currentScreen = "contatti" }
                     )
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Movies, "Film") },
+                        icon = { Icon(Icons.Default.Movie, "Film") },
                         label = { Text("Film") },
                         selected = currentScreen == "film-animazione",
                         onClick = { currentScreen = "film-animazione" }
