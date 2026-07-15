@@ -34,9 +34,24 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            ToonItaliaTheme {
-                MainScreen()
+        try {
+            setContent {
+                ToonItaliaTheme {
+                    MainScreen()
+                }
+            }
+        } catch (t: Throwable) {
+            val msg = "${t.javaClass.simpleName}: ${t.message}\n\n${t.stackTraceToString()}"
+            try {
+                val f = java.io.File(filesDir, "crash_log.txt")
+                f.writeText("=== INIT CRASH ===\n$msg")
+                val ext = getExternalFilesDir(null)
+                if (ext != null) java.io.File(ext, "crash_log.txt").writeText("=== INIT CRASH ===\n$msg")
+            } catch (_: Exception) {}
+            setContent {
+                ToonItaliaTheme {
+                    ErrorScreen(msg)
+                }
             }
         }
     }
@@ -626,6 +641,41 @@ fun CrashScreen(modifier: Modifier = Modifier) {
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun ErrorScreen(error: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F0F23))
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(Icons.Default.BugReport, null, tint = Color.Red, modifier = Modifier.size(64.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("App Crashata", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+        Spacer(Modifier.height(16.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(Color(0xFF1A1A2E))
+                .padding(12.dp)
+        ) {
+            androidx.compose.foundation.text.BasicTextField(
+                value = error,
+                onValueChange = {},
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = Color(0xFFBBBBBB)
+                ),
+                readOnly = true
+            )
         }
     }
 }
