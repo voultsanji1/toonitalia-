@@ -19,5 +19,6 @@ class ToonItaliaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         isTvMode = isTV(this)
+        CrashHandler(this)
     }
 }

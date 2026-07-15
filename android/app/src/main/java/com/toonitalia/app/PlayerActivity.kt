@@ -114,6 +114,18 @@ class PlayerActivity : ComponentActivity() {
         player?.setMediaItem(mediaItem)
         player?.prepare()
         player?.playWhenReady = true
+        
+        player?.addListener(object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                runOnUiThread {
+                    Toast.makeText(
+                        this@PlayerActivity,
+                        "Errore riproduzione: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        })
     }
 
     override fun onPause() {

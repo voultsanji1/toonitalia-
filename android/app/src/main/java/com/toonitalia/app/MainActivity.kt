@@ -88,6 +88,9 @@ fun MainScreen() {
                     containerColor = Color(0xFF1A1A2E)
                 ),
                 actions = {
+                    IconButton(onClick = { currentScreen = "crash" }) {
+                        Icon(Icons.Default.BugReport, "Crash Logs")
+                    }
                     IconButton(onClick = { currentScreen = "search" }) {
                         Icon(Icons.Default.Search, "Search")
                     }
@@ -157,6 +160,9 @@ fun MainScreen() {
                     onItemSelected = { selectedContent = it },
                     modifier = Modifier.padding(padding)
                 )
+            }
+            currentScreen == "crash" -> {
+                CrashScreen(modifier = Modifier.padding(padding))
             }
             currentScreen == "home" -> {
                 HomeScreen(
@@ -547,6 +553,79 @@ fun EpisodeItem(
                 contentDescription = null,
                 tint = Color.Gray
             )
+        }
+    }
+}
+
+@Composable
+fun CrashScreen(modifier: Modifier = Modifier) {
+    var crashLog by remember { mutableStateOf<String>("") }
+    var isLoading by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                val file = context.getFileStreamPath("crash_log.txt")
+                if (file.exists()) {
+                    crashLog = file.readText()
+                } else {
+                    crashLog = "Nessun crash registrato."
+                }
+            }
+            isLoading = false
+        }
+    }
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("🐛 Crash Logs", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            IconButton(onClick = {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        context.getFileStreamPath("crash_log.txt").delete()
+                    }
+                    crashLog = "Log cancellato."
+                }
+            }) {
+                Icon(Icons.Default.Delete, "Clear", tint = Color(0xFF03DAC5))
+            }
+        }
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF1A1A2E))
+                    .padding(16.dp),
+                contentAlignment = Alignment.TopStart
+            ) {
+                androidx.compose.foundation.text.BasicTextField(
+                    value = crashLog,
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxSize(),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = Color(0xFFBBBBBB)
+                    ),
+                    readOnly = true,
+                    singleLine = false,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                )
+            }
         }
     }
 }

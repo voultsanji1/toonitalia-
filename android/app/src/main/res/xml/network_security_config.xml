@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">toonitalia.xyz</domain>
+        <domain includeSubdomains="true">uqload.is</domain>
+        <domain includeSubdomains="true">chuckle-tube.com</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
