@@ -401,6 +401,7 @@ class PlayerActivity : ComponentActivity() {
     private fun playVideoWithReferer(url: String, referer: String) {
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.parse(url))
+            .setCustomHeaders(mapOf("Referer" to listOf(referer)))
             .build()
         player?.setMediaItem(mediaItem)
         player?.prepare()

@@ -1,6 +1,7 @@
 package com.toonitalia.app
 
 import org.jsoup.Jsoup
+import java.net.URLEncoder
 
 object Scraper {
     private const val BASE_URL = "https://toonitalia.xyz"
@@ -97,11 +98,9 @@ object Scraper {
             .find(allText)
         val synopsis = tramaMatch?.groupValues?.get(1)?.trim() ?: ""
 
-        // Parse episodes from <p> tags
-        // Format: "28 – 1929 – Title – VOE – VIDHIDE"
+        // Parse episodes from <p> tags, splitting by <br> (all episodes are in one <p>)
         var currentSeason = 0
         for (el in content.children()) {
-            // Track season headers
             if (el.tagName() == "h3" || el.tagName() == "h2") {
                 val seasonMatch = Regex("(\\d+)\\s*[°º]\\s*Stagione").find(el.text())
                 if (seasonMatch != null) {
@@ -111,63 +110,63 @@ object Scraper {
             }
 
             if (el.tagName() != "p") continue
-            val pText = el.text()
-            val links = el.select("a[href]")
-            if (links.isEmpty()) continue
 
-            // Check if this paragraph has streaming links
-            val hasStreamingLink = links.any {
-                val href = it.attr("href")
-                href.contains("chuckle-tube.com") || href.contains("vidhideplus.com") ||
-                href.contains("uqload.is") || href.contains("uqload.com") ||
-                href.contains("uqload.bz") || href.contains("uqload.to") ||
-                href.contains("voe.sx") || href.contains("ryderjet.com") ||
-                href.contains("luluvdo.com") || href.contains("streamtape") ||
-                href.contains("strcloud.link") || href.contains("scloud.lol")
-            }
-            if (!hasStreamingLink) continue
+            // Split <p> by <br> to get individual episodes
+            val html = el.html()
+            val parts = html.split(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE))
 
-            // Collect ALL streaming links
-            val playerLinks = mutableListOf<PlayerLink>()
-            for (link in links) {
-                val href = link.attr("href")
-                if (href.isBlank()) continue
-                val label = link.text().trim()
-                val cleanLabel = when {
-                    label.isBlank() -> "Player"
-                    else -> label
+            for (partHtml in parts) {
+                val segDoc = Jsoup.parse("<p>$partHtml</p>")
+                val segEl = segDoc.selectFirst("p") ?: continue
+                val segText = segEl.text()
+                val links = segEl.select("a[href]")
+                if (links.isEmpty()) continue
+
+                val hasStreamingLink = links.any {
+                    val href = it.attr("href")
+                    href.contains("chuckle-tube.com") || href.contains("vidhideplus.com") ||
+                    href.contains("uqload.is") || href.contains("uqload.com") ||
+                    href.contains("uqload.bz") || href.contains("uqload.to") ||
+                    href.contains("voe.sx") || href.contains("ryderjet.com") ||
+                    href.contains("luluvdo.com") || href.contains("streamtape") ||
+                    href.contains("strcloud.link") || href.contains("scloud.lol")
                 }
-                playerLinks.add(PlayerLink(label = cleanLabel, url = href))
+                if (!hasStreamingLink) continue
+
+                val playerLinks = mutableListOf<PlayerLink>()
+                for (link in links) {
+                    val href = link.attr("href")
+                    if (href.isBlank()) continue
+                    val label = link.text().trim()
+                    playerLinks.add(PlayerLink(label = label.ifBlank { "Player" }, url = href))
+                }
+                if (playerLinks.isEmpty()) continue
+
+                val streamingUrl = playerLinks.first().url
+
+                val cleanText = links.fold(segText) { acc, link -> acc.replace(link.text(), "").trim() }
+                    .replace(Regex("\\s*–\\s*$"), "")
+                    .replace(Regex("\\s*-$"), "")
+                    .trim()
+
+                val epMatch = Regex("^(\\d+)\\s*–\\s*(\\d{4})\\s*–\\s*(.+?)\\s*$").find(cleanText)
+                val epMatch2 = Regex("^(\\d+)\\s*–\\s*(.+?)\\s*$").find(cleanText)
+
+                val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+                    ?: epMatch2?.groupValues?.get(1)?.toIntOrNull()
+                    ?: (episodes.size + 1)
+                val epTitle = epMatch?.groupValues?.get(3)?.trim()
+                    ?: epMatch2?.groupValues?.get(2)?.trim()
+                    ?: "Episodio $epNum"
+
+                episodes.add(Episode(
+                    title = "Ep. $epNum - $epTitle",
+                    url = streamingUrl,
+                    season = currentSeason,
+                    number = epNum,
+                    players = playerLinks
+                ))
             }
-            if (playerLinks.isEmpty()) continue
-
-            val streamingUrl = playerLinks.first().url
-
-            // Parse episode info from text
-            // Format: "28 – 1929 – Topolino – Steamboat Willie – VOE – VIDHIDE"
-            // Remove the link texts to get the title part
-            val cleanText = links.fold(pText) { acc, link -> acc.replace(link.text(), "").trim() }
-                .replace(Regex("\\s*–\\s*$"), "")
-                .replace(Regex("\\s*-$"), "")
-                .trim()
-
-            val epMatch = Regex("^(\\d+)\\s*–\\s*(\\d{4})\\s*–\\s*(.+?)\\s*$").find(cleanText)
-            val epMatch2 = Regex("^(\\d+)\\s*–\\s*(.+?)\\s*$").find(cleanText)
-
-            val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
-                ?: epMatch2?.groupValues?.get(1)?.toIntOrNull()
-                ?: (episodes.size + 1)
-            val epTitle = epMatch?.groupValues?.get(3)?.trim()
-                ?: epMatch2?.groupValues?.get(2)?.trim()
-                ?: "Episodio $epNum"
-
-            episodes.add(Episode(
-                title = "Ep. $epNum - $epTitle",
-                url = streamingUrl,
-                season = currentSeason,
-                number = epNum,
-                players = playerLinks
-            ))
         }
 
         val seasons = content.select("[id^=S], a[name^=S]").map {
@@ -201,10 +200,26 @@ object Scraper {
 
     fun search(query: String): List<ContentItem> {
         val results = mutableListOf<ContentItem>()
-        val q = query.lowercase()
-        for ((slug, _) in scrapeCategories()) {
-            val items = scrapeContentList(slug)
-            results.addAll(items.filter { it.title.lowercase().contains(q) })
+        try {
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val doc = getDoc("$BASE_URL/?s=$encoded")
+            for (article in doc.select("article")) {
+                val h2 = article.selectFirst("h2")
+                val link = h2?.selectFirst("a[href]") ?: continue
+                val href = link.attr("href")
+                val title = link.text().trim()
+                if (title.isNotBlank() && href.startsWith(BASE_URL) &&
+                    !href.contains("/?s=") && !href.contains("/category/") && !href.contains("/author/")) {
+                    val img = article.selectFirst("img")
+                    results.add(ContentItem(
+                        title = title,
+                        url = href,
+                        image = img?.attr("src") ?: ""
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
         return results
     }

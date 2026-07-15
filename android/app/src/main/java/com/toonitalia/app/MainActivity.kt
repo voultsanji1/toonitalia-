@@ -226,6 +226,16 @@ fun HomeScreen(
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Color(0xFF6C63FF))
         }
+    } else if (sections.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Info, null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+                Spacer(Modifier.height(12.dp))
+                Text("Nessun contenuto trovato", color = Color.Gray, fontSize = 16.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("Verifica la connessione e riprova", color = Color(0xFF666666), fontSize = 13.sp)
+            }
+        }
     } else {
         LazyColumn(
             modifier = modifier.fillMaxSize(),
@@ -276,6 +286,14 @@ fun CategoryScreen(
     if (isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Color(0xFF6C63FF))
+        }
+    } else if (items.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Info, null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+                Spacer(Modifier.height(12.dp))
+                Text("Nessun contenuto in questa categoria", color = Color.Gray, fontSize = 16.sp)
+            }
         }
     } else {
         LazyVerticalGrid(
@@ -339,9 +357,18 @@ fun SearchScreen(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else {
+        } else if (results.isEmpty() && query.length >= 2) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Clear, null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Nessun risultato per \"$query\"", color = Color.Gray, fontSize = 16.sp)
+                }
+            }
+        } else if (results.isNotEmpty()) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 150.dp),
+                modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -350,6 +377,14 @@ fun SearchScreen(
                         item = item,
                         onClick = { onItemSelected(item) }
                     )
+                }
+            }
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Search, null, tint = Color(0xFF6C63FF), modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Cerca anime, film o serie TV", color = Color.Gray, fontSize = 16.sp)
                 }
             }
         }
@@ -450,6 +485,18 @@ fun DetailScreen(
             item {
                 Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF6C63FF))
+                }
+            }
+        }
+
+        if (!isLoading && detail.episodes.isEmpty()) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.PlayCircle, null, tint = Color(0xFF666666), modifier = Modifier.size(40.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Nessun episodio disponibile", color = Color.Gray, fontSize = 14.sp)
+                    }
                 }
             }
         }
