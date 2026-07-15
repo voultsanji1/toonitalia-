@@ -14,12 +14,10 @@ object Scraper {
         val doc = getDoc(BASE_URL)
         val sections = mutableListOf<CategorySection>()
 
-        // Homepage uses custom layout: .col contains h2 headers and .item divs
-        // Each .item has an <a class="card-link"> with <img> and <span class="title">
         val cols = doc.select(".col")
         for (col in cols) {
             val h2 = col.selectFirst("h2")
-            val title = h2?.text()?.replace(Regex("^[🔥⚡🎬📺]\\s*"), "")?.trim() ?: continue
+            val title = h2?.text()?.replace(Regex("^[\\u{1F525}\\u{26A1}\\u{1F3AC}\\u{1F4FA}]\\s*"), "")?.trim() ?: continue
             if (title.isBlank()) continue
 
             val items = mutableListOf<ContentItem>()
@@ -51,42 +49,19 @@ object Scraper {
         val items = mutableListOf<ContentItem>()
         val seen = mutableSetOf<String>()
 
-        // Category pages use .catlist-box ul li a (text-only links, no images)
         for (a in doc.select(".catlist-box ul li a[href]")) {
             val href = a.attr("href")
             val title = a.text().trim()
 
-            if (title.isNotBlank() && href.startsWith(BASE_URL) &&
-                !seen.contains(href)
-            ) {
+            if (title.isNotBlank() && href.startsWith(BASE_URL) && !seen.contains(href)) {
                 seen.add(href)
                 items.add(ContentItem(
                     title = title,
                     url = href,
-                    image = "",
                     categorySlug = categorySlug
                 ))
             }
         }
-
-        // Fetch OG images in background for first batch
-        if (items.isNotEmpty()) {
-            val toFetch = items.take(40)
-            for (item in toFetch) {
-                try {
-                    val detailDoc = getDoc(item.url)
-                    val ogImage = detailDoc.selectFirst("meta[property=og:image]")
-                    val imageUrl = ogImage?.attr("content") ?: ""
-                    if (imageUrl.isNotBlank()) {
-                        val idx = items.indexOf(item)
-                        if (idx >= 0) {
-                            items[idx] = item.copy(image = imageUrl)
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-
         return items
     }
 
@@ -99,69 +74,88 @@ object Scraper {
         result["title"] = titleEl?.text() ?: ""
 
         val content = doc.selectFirst("article .entry-content") ?: doc.selectFirst("article") ?: doc
-        val text = content.text()
 
+        val img = content.selectFirst("img")
+        val imageUrl = img?.attr("src") ?: ""
+
+        // Parse metadata from paragraphs
+        val allText = content.text()
         val fields = mapOf(
             "Titolo originale" to "originalTitle",
             "Paese di origine" to "country",
             "Data di pubblicazione" to "year",
             "Stato Opera" to "status",
             "N. Episodi" to "totalEpisodes",
-            "Episodi disponibili" to "availableEpisodes"
+            "Aggiornamento episodi" to "availableEpisodes"
         )
-
         for ((field, key) in fields) {
             val pattern = Regex("$field\\s*:\\s*(.+)")
-            pattern.find(text)?.let { result[key] = it.groupValues[1].trim() }
+            pattern.find(allText)?.let { result[key] = it.groupValues[1].trim() }
         }
 
-        val img = content.selectFirst("img")
-        val imageUrl = img?.attr("src") ?: ""
-
-        val tramaMatch = Regex("Trama\\s*:\\s*(.+?)(?=Scegli Stagione|Episodi|\\$)", RegexOption.DOT_MATCHES_ALL)
-            .find(text)
+        val tramaMatch = Regex("Trama\\s*:\\s*(.+?)(?=Company|Episodi|Stagione)", RegexOption.DOT_MATCHES_ALL)
+            .find(allText)
         val synopsis = tramaMatch?.groupValues?.get(1)?.trim() ?: ""
 
-        // Parse episodes - format: "01 - Title - PLAYER1 - PLAYER2"
-        // Look for links to uqload.is and chuckle-tube.com
-        for (p in doc.select("p")) {
-            val pText = p.text()
-            val links = p.select("a[href]")
+        // Parse episodes from <p> tags
+        // Format: "28 – 1929 – Title – VOE – VIDHIDE"
+        var currentSeason = 0
+        for (el in content.children()) {
+            // Track season headers
+            if (el.tagName() == "h3" || el.tagName() == "h2") {
+                val seasonMatch = Regex("(\\d+)\\s*[°º]\\s*Stagione").find(el.text())
+                if (seasonMatch != null) {
+                    currentSeason = seasonMatch.groupValues[1].toIntOrNull() ?: currentSeason
+                    continue
+                }
+            }
+
+            if (el.tagName() != "p") continue
+            val pText = el.text()
+            val links = el.select("a[href]")
             if (links.isEmpty()) continue
 
-            // Check if this paragraph contains streaming links
+            // Check if this paragraph has streaming links
             val hasStreamingLink = links.any {
                 val href = it.attr("href")
-                href.contains("uqload.is") || href.contains("chuckle-tube.com")
+                href.contains("chuckle-tube.com") || href.contains("vidhideplus.com") ||
+                href.contains("uqload.is") || href.contains("voe.sx")
             }
             if (!hasStreamingLink) continue
 
-            // Extract episode number and title from the paragraph text
-            // Format: "01 - Title - PLAYER1 - PLAYER2"
-            val cleaned = pText.replace("PLAYER1", "").replace("PLAYER2", "").trim()
-            val epMatch = Regex("^(\\d+)\\s*[–\\-]\\s*(.+?)\\s*[–\\-]\\s*$").find(cleaned)
-                ?: Regex("^(\\d+)\\s*[–\\-]\\s*(.+)").find(cleaned)
+            // Get the first streaming URL
+            val streamingUrl = links.first().attr("href")
+            if (streamingUrl.isBlank()) continue
 
-            val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
-            val epTitle = epMatch?.groupValues?.get(2)?.trim() ?: "Episodio $epNum"
+            // Parse episode info from text
+            // Format: "28 – 1929 – Topolino – Steamboat Willie – VOE – VIDHIDE"
+            // Remove the link texts to get the title part
+            val cleanText = links.fold(pText) { acc, link -> acc.replace(link.text(), "").trim() }
+                .replace(Regex("\\s*–\\s*$"), "")
+                .replace(Regex("\\s*-$"), "")
+                .trim()
 
-            // Use the first streaming link (uqload preferred, fallback to chuckle-tube)
-            val streamingUrl = links.firstOrNull {
-                it.attr("href").contains("uqload.is")
-            }?.attr("href") ?: links.firstOrNull {
-                it.attr("href").contains("chuckle-tube.com")
-            }?.attr("href") ?: continue
+            val epMatch = Regex("^(\\d+)\\s*–\\s*(\\d{4})\\s*–\\s*(.+?)\\s*$").find(cleanText)
+            val epMatch2 = Regex("^(\\d+)\\s*–\\s*(.+?)\\s*$").find(cleanText)
+
+            val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull()
+                ?: epMatch2?.groupValues?.get(1)?.toIntOrNull()
+                ?: (episodes.size + 1)
+            val epTitle = epMatch?.groupValues?.get(3)?.trim()
+                ?: epMatch2?.groupValues?.get(2)?.trim()
+                ?: "Episodio $epNum"
 
             episodes.add(Episode(
                 title = "Ep. $epNum - $epTitle",
                 url = streamingUrl,
-                season = 0,
+                season = currentSeason,
                 number = epNum
             ))
         }
 
-        // Also try season tabs
-        val seasons = doc.select("[id^=S]").map { it.id() }
+        val seasons = content.select("[id^=S], a[name^=S]").map {
+            it.id().ifBlank { it.attr("name") }
+        }.filter { it.isNotBlank() }.distinct()
 
         return ContentItem(
             title = result["title"] ?: "",

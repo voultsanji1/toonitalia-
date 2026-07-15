@@ -49,15 +49,20 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun resolveAndPlay(url: String) {
-        if (url.contains("m3u8") || url.contains(".mp4")) {
+        // Direct video links
+        if (url.contains("m3u8") || url.contains(".mp4") || url.contains(".mkv")) {
             playVideo(url)
             return
         }
+
+        // Embed pages - fetch and extract video URL
+        Toast.makeText(this, "Caricamento video...", Toast.LENGTH_SHORT).show()
 
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0.0.0 Mobile Safari/537.36")
             .header("Referer", "https://toonitalia.xyz/")
+            .header("Accept", "text/html,application/xhtml+xml")
             .build()
 
         NetworkModule.client.newCall(request).enqueue(object : Callback {
@@ -93,39 +98,40 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun extractVideoUrl(html: String): String? {
-        // Common patterns for video embeds
         val patterns = listOf(
-            // uqload / chuckle-tube patterns
+            // VOE/chuckle-tube patterns
             Pattern.compile("\\{\\s*file\\s*:\\s*\"(https?://[^\"]+)\""),
             Pattern.compile("file\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
-            Pattern.compile("src\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
-            Pattern.compile("source\\s*:\\s*\"(https?://[^\"]+)\""),
-            Pattern.compile("\"(https?://[^\"]+\\.m3u8[^\"]*)\""),
-            Pattern.compile("'(https?://[^\']+\\.m3u8[^\']*)'"),
-            Pattern.compile("\"(https?://[^\"]+\\.(mp4|mkv|avi)[^\"]*)\""),
-            Pattern.compile("'(https?://[^\']+\\.(mp4|mkv)[^\']*)'"),
-            // Generic patterns
-            Pattern.compile("videoUrl\\s*=\\s*\"(https?://[^\"]+)\""),
-            Pattern.compile("video_url\\s*=\\s*\"(https?://[^\"]+)\""),
-            Pattern.compile("file:\\s*\"(https?://[^\"]+)\""),
+            Pattern.compile("source\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
+            // VIDHIDE patterns
+            Pattern.compile("video_url\\s*[=:]\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("videoUrl\\s*[=:]\s*[\"']?(https?://[^\"'\\s]+)"),
+            // Generic m3u8/mp4
+            Pattern.compile("[\"'](https?://[^\"']+\\.m3u8[^\"']*)[\"']"),
+            Pattern.compile("[\"'](https?://[^\"']+\\.(mp4|mkv|avi)[^\"']*)[\"']"),
+            Pattern.compile("src\\s*:\\s*[\"']?(https?://[^\"'\\s]+\\.(m3u8|mp4))"),
+            Pattern.compile("file:[\"']?(https?://[^\"'\\s,]+)"),
         )
 
         for (pattern in patterns) {
             val matcher = pattern.matcher(html)
             if (matcher.find()) {
                 val url = matcher.group(1)
-                if (url != null && (url.contains("m3u8") || url.contains(".mp4") || url.contains(".mkv"))) {
+                if (url != null && url.length > 10 &&
+                    (url.contains("m3u8") || url.contains(".mp4") || url.contains(".mkv") ||
+                     url.contains("manifest"))) {
                     return url
                 }
             }
         }
 
-        // Try iframe src
-        val iframePattern = Pattern.compile("<iframe[^>]+src=\"(https?://[^\"]+)\"")
+        // Try to find iframe and fetch it
+        val iframePattern = Pattern.compile("<iframe[^>]+src=[\"']([^\"']+)[\"']")
         val iframeMatcher = iframePattern.matcher(html)
         while (iframeMatcher.find()) {
-            val iframeSrc = iframeMatcher.group(1)
-            if (iframeSrc != null && (iframeSrc.contains("uqload") || iframeSrc.contains("chuckle") || iframeSrc.contains("stream"))) {
+            val iframeSrc = iframeMatcher.group(1) ?: continue
+            if (iframeSrc.contains("chuckle") || iframeSrc.contains("voe") ||
+                iframeSrc.contains("vidhide") || iframeSrc.contains("stream")) {
                 return iframeSrc
             }
         }
