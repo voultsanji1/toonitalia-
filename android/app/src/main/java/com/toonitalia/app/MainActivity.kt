@@ -552,15 +552,33 @@ fun ContentCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
     ) {
         Column {
-            AsyncImage(
-                model = item.image,
-                contentDescription = item.title,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
-                contentScale = ContentScale.Crop
-            )
+            if (item.image.isNotBlank()) {
+                AsyncImage(
+                    model = item.image,
+                    contentDescription = item.title,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(Color(0xFF2A2A4A))
+                        .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.PlayCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF6C63FF),
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+            }
             Text(
                 item.title,
                 maxLines = 2,

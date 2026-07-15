@@ -1,5 +1,9 @@
 package com.toonitalia.app
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.jsoup.Jsoup
 import java.net.URLEncoder
 
@@ -11,6 +15,28 @@ object Scraper {
         return Jsoup.parse(html)
     }
 
+    private var homepageImageCache = mutableMapOf<String, String>()
+
+    private fun buildHomepageCache() {
+        if (homepageImageCache.isNotEmpty()) return
+        try {
+            val doc = getDoc(BASE_URL)
+            for (item in doc.select(".item")) {
+                val link = item.selectFirst("a[href]") ?: continue
+                val href = link.attr("href")
+                val img = item.selectFirst("img")
+                val imageUrl = img?.attr("src") ?: ""
+                if (href.isNotBlank() && imageUrl.isNotBlank()) {
+                    homepageImageCache[href.trimEnd('/')] = imageUrl
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun getImageForUrl(url: String): String {
+        return homepageImageCache[url.trimEnd('/')] ?: ""
+    }
+
     fun scrapeHomepage(): List<CategorySection> {
         val doc = getDoc(BASE_URL)
         val sections = mutableListOf<CategorySection>()
@@ -18,7 +44,7 @@ object Scraper {
         val cols = doc.select(".col")
         for (col in cols) {
             val h2 = col.selectFirst("h2")
-            val title = h2?.text()?.replace(Regex("^[\\u{1F525}\\u{26A1}\\u{1F3AC}\\u{1F4FA}]\\s*"), "")?.trim() ?: continue
+            val title = h2?.text()?.replace(Regex("^[\u0000-\u001F\u200B-\u200D\uFEFF\u20E3\u2600-\u27BF\u{1F000}-\u{1FFFF}]\\s*"), "")?.trim() ?: continue
             if (title.isBlank()) continue
 
             val items = mutableListOf<ContentItem>()
@@ -63,6 +89,49 @@ object Scraper {
                 ))
             }
         }
+
+        buildHomepageCache()
+
+        for (item in items) {
+            if (item.image.isEmpty()) {
+                val cached = getImageForUrl(item.url)
+                if (cached.isNotEmpty()) {
+                    items[items.indexOf(item)] = item.copy(image = cached)
+                }
+            }
+        }
+
+        val needsFetch = items.filter { it.image.isEmpty() }.take(30)
+        if (needsFetch.isNotEmpty()) {
+            try {
+                val fetched = runCatching {
+                    coroutineScope {
+                        needsFetch.chunked(6).map { chunk ->
+                            chunk.map { item ->
+                                async(Dispatchers.IO) {
+                                    try {
+                                        val detailDoc = getDoc(item.url)
+                                        val img = detailDoc.selectFirst("article .entry-content img")
+                                            ?: detailDoc.selectFirst("article img")
+                                            ?: detailDoc.selectFirst(".entry-content img")
+                                        val imgUrl = img?.attr("src") ?: ""
+                                        if (imgUrl.isNotBlank()) item to imgUrl else null
+                                    } catch (_: Exception) { null }
+                                }
+                            }.awaitAll().filterNotNull()
+                        }.flatten()
+                    }
+                }.getOrDefault(emptyList())
+
+                for ((item, imgUrl) in fetched) {
+                    val idx = items.indexOfFirst { it.url == item.url }
+                    if (idx >= 0) {
+                        items[idx] = items[idx].copy(image = imgUrl)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
         return items
     }
 
@@ -211,10 +280,23 @@ object Scraper {
                 if (title.isNotBlank() && href.startsWith(BASE_URL) &&
                     !href.contains("/?s=") && !href.contains("/category/") && !href.contains("/author/")) {
                     val img = article.selectFirst("img")
+                    var imageUrl = img?.attr("src") ?: ""
+                    if (imageUrl.isBlank()) {
+                        val schemaScript = article.selectFirst("script[type=application/ld+json]")
+                        if (schemaScript != null) {
+                            val text = schemaScript.html()
+                            val thumbMatch = Regex("\"thumbnailUrl\"\\s*:\\s*\"([^\"]+)\"").find(text)
+                            imageUrl = thumbMatch?.groupValues?.get(1) ?: ""
+                        }
+                    }
+                    if (imageUrl.isBlank()) {
+                        val metaImg = article.selectFirst("meta[property=og:image]")
+                        imageUrl = metaImg?.attr("content") ?: ""
+                    }
                     results.add(ContentItem(
                         title = title,
                         url = href,
-                        image = img?.attr("src") ?: ""
+                        image = imageUrl
                     ))
                 }
             }

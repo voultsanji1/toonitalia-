@@ -294,15 +294,30 @@ class PlayerActivity : ComponentActivity() {
             Pattern.compile("source\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
             Pattern.compile("[\"'](https?://[^\"']+\\.m3u8[^\"']*)[\"']"),
             Pattern.compile("[\"'](https?://[^\"']+\\.mp4[^\"']*)[\"']"),
-            Pattern.compile("file:[\"']?(https?://[^\"'\\s,]+)")
+            Pattern.compile("file:[\"']?(https?://[^\"'\\s,]+)"),
+            Pattern.compile("video_url\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("src\\s*:\\s*[\"']?(https?://[^\"'\\s]+\\.(m3u8|mp4))"),
+            Pattern.compile("[\"'](https?://[^\"'\\s]*(?:s3|storage|stream|cdn|server\\d*)[^\"'\\s]*\\.(m3u8|mp4)[^\"'\\s]*)[\"']")
         )
         for (p in patterns) {
             val m = p.matcher(html)
             if (m.find()) {
                 val url = m.group(1)
-                if (url != null && url.length > 10) return url
+                if (url != null && url.length > 10 && !url.contains("example.com")) return url
             }
         }
+
+        val packedMatch = Regex("eval\\(function\\(p,a,c,k,e,d\\).+?\\)").find(html)
+        if (packedMatch != null) {
+            try {
+                val unpacked = unpackPackedJs(packedMatch.value)
+                if (unpacked != null) {
+                    val urlMatch = Regex("[\"'](https?://[^\"']+\\.(m3u8|mp4)[^\"']*)[\"']").find(unpacked)
+                    if (urlMatch != null) return urlMatch.groupValues[1]
+                }
+            } catch (_: Exception) {}
+        }
+
         return null
     }
 
@@ -315,15 +330,32 @@ class PlayerActivity : ComponentActivity() {
             Pattern.compile("sources\\s*:\\s*\\[\\s*\\{\\s*file\\s*:\\s*\"(https?://[^\"]+)\""),
             Pattern.compile("[\"'](https?://[^\"']+\\.m3u8[^\"']*)[\"']"),
             Pattern.compile("[\"'](https?://[^\"']+\\.mp4[^\"']*)[\"']"),
-            Pattern.compile("var\\s+source\\s*=\\s*'(https?://[^']+)'")
+            Pattern.compile("var\\s+source\\s*=\\s*'(https?://[^']+)'"),
+            Pattern.compile("video_url\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("videoUrl\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("src\\s*:\\s*[\"']?(https?://[^\"'\\s]+\\.(m3u8|mp4))"),
+            Pattern.compile("[\"'](https?://[^\"'\\s]*cdn[^\"'\\s]*\\.(m3u8|mp4)[^\"'\\s]*)[\"']"),
+            Pattern.compile("[\"'](https?://[^\"'\\s]*(?:s3|storage|stream|cdn|server\\d*)[^\"'\\s]*\\.(m3u8|mp4)[^\"'\\s]*)[\"']")
         )
         for (p in patterns) {
             val m = p.matcher(html)
             if (m.find()) {
                 val url = m.group(1)
-                if (url != null && url.length > 10 && !url.contains("test-videos.co.uk")) return url
+                if (url != null && url.length > 10 && !url.contains("test-videos.co.uk") && !url.contains("example.com")) return url
             }
         }
+
+        val packedMatch = Regex("eval\\(function\\(p,a,c,k,e,d\\).+?\\)").find(html)
+        if (packedMatch != null) {
+            try {
+                val unpacked = unpackPackedJs(packedMatch.value)
+                if (unpacked != null) {
+                    val urlMatch = Regex("[\"'](https?://[^\"']+\\.(m3u8|mp4)[^\"']*)[\"']").find(unpacked)
+                    if (urlMatch != null) return urlMatch.groupValues[1]
+                }
+            } catch (_: Exception) {}
+        }
+
         return null
     }
 
@@ -335,15 +367,29 @@ class PlayerActivity : ComponentActivity() {
             Pattern.compile("videoUrl\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
             Pattern.compile("sources\\s*:\\s*\\[\\s*\"(https?://[^\"]+)\""),
             Pattern.compile("[\"'](https?://[^\"']+\\.m3u8[^\"']*)[\"']"),
-            Pattern.compile("[\"'](https?://[^\"']+\\.mp4[^\"']*)[\"']")
+            Pattern.compile("[\"'](https?://[^\"']+\\.mp4[^\"']*)[\"']"),
+            Pattern.compile("src\\s*:\\s*[\"']?(https?://[^\"'\\s]+\\.(m3u8|mp4))"),
+            Pattern.compile("[\"'](https?://[^\"'\\s]*(?:s3|storage|stream|cdn|server\\d*)[^\"'\\s]*\\.(m3u8|mp4)[^\"'\\s]*)[\"']")
         )
         for (p in patterns) {
             val m = p.matcher(html)
             if (m.find()) {
                 val url = m.group(1)
-                if (url != null && url.length > 10) return url
+                if (url != null && url.length > 10 && !url.contains("example.com")) return url
             }
         }
+
+        val packedMatch = Regex("eval\\(function\\(p,a,c,k,e,d\\).+?\\)").find(html)
+        if (packedMatch != null) {
+            try {
+                val unpacked = unpackPackedJs(packedMatch.value)
+                if (unpacked != null) {
+                    val urlMatch = Regex("[\"'](https?://[^\"']+\\.(m3u8|mp4)[^\"']*)[\"']").find(unpacked)
+                    if (urlMatch != null) return urlMatch.groupValues[1]
+                }
+            } catch (_: Exception) {}
+        }
+
         return null
     }
 
@@ -373,16 +419,55 @@ class PlayerActivity : ComponentActivity() {
             Pattern.compile("[\"'](https?://[^\"']+\\.m3u8[^\"']*)[\"']"),
             Pattern.compile("[\"'](https?://[^\"']+\\.(mp4|mkv|avi)[^\"']*)[\"']"),
             Pattern.compile("src\\s*:\\s*[\"']?(https?://[^\"'\\s]+\\.(m3u8|mp4))"),
-            Pattern.compile("file:[\"']?(https?://[^\"'\\s,]+)")
+            Pattern.compile("file:[\"']?(https?://[^\"'\\s,]+)"),
+            Pattern.compile("video_url\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("videoUrl\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
+            Pattern.compile("[\"'](https?://[^\"'\\s]*(?:s3|storage|stream|cdn|server\\d*)[^\"'\\s]*\\.(m3u8|mp4)[^\"'\\s]*)[\"']")
         )
         for (p in patterns) {
             val m = p.matcher(html)
             if (m.find()) {
                 val url = m.group(1)
-                if (url != null && url.length > 10) return url
+                if (url != null && url.length > 10 && !url.contains("example.com")) return url
             }
         }
+
+        val packedMatch = Regex("eval\\(function\\(p,a,c,k,e,d\\).+?\\)").find(html)
+        if (packedMatch != null) {
+            try {
+                val unpacked = unpackPackedJs(packedMatch.value)
+                if (unpacked != null) {
+                    val urlMatch = Regex("[\"'](https?://[^\"']+\\.(m3u8|mp4|mkv)[^\"']*)[\"']").find(unpacked)
+                    if (urlMatch != null) return urlMatch.groupValues[1]
+                }
+            } catch (_: Exception) {}
+        }
+
         return null
+    }
+
+    private fun unpackPackedJs(packed: String): String? {
+        return try {
+            val base62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            val args = Regex("}\\('(.+)',(\\d+),(\\d+),'([^']+)'\\.split\\('\\|'\\)\\)").find(packed)
+                ?: return null
+            val p = args.groupValues[1]
+            val a = args.groupValues[2].toInt()
+            val c = args.groupValues[3].toInt()
+            val k = args.groupValues[4].split("|")
+            val d = mutableMapOf<String, String>()
+            var idx = c
+            while (idx > 0) {
+                idx--
+                val key = if (idx < k.size) k[idx] else base62[idx % base62.length].toString()
+                d[base62[idx]] = key
+            }
+            var result = p
+            for ((key, value) in d) {
+                result = result.replace(Regex("\\b$key\\b"), value)
+            }
+            result
+        } catch (_: Exception) { null }
     }
 
     private fun playVideo(url: String) {
