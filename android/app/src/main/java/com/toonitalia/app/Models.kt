@@ -23,11 +23,18 @@ data class ContentItem(
 ) : Parcelable
 
 @Parcelize
+data class PlayerLink(
+    val label: String = "",
+    val url: String = ""
+) : Parcelable
+
+@Parcelize
 data class Episode(
     val title: String = "",
     val url: String = "",
     val season: Int = 0,
-    val number: Int = 0
+    val number: Int = 0,
+    val players: List<PlayerLink> = emptyList()
 ) : Parcelable
 
 data class CategorySection(

@@ -119,13 +119,29 @@ object Scraper {
             val hasStreamingLink = links.any {
                 val href = it.attr("href")
                 href.contains("chuckle-tube.com") || href.contains("vidhideplus.com") ||
-                href.contains("uqload.is") || href.contains("voe.sx")
+                href.contains("uqload.is") || href.contains("uqload.com") ||
+                href.contains("uqload.bz") || href.contains("uqload.to") ||
+                href.contains("voe.sx") || href.contains("ryderjet.com") ||
+                href.contains("luluvdo.com") || href.contains("streamtape") ||
+                href.contains("strcloud.link") || href.contains("scloud.lol")
             }
             if (!hasStreamingLink) continue
 
-            // Get the first streaming URL
-            val streamingUrl = links.first().attr("href")
-            if (streamingUrl.isBlank()) continue
+            // Collect ALL streaming links
+            val playerLinks = mutableListOf<PlayerLink>()
+            for (link in links) {
+                val href = link.attr("href")
+                if (href.isBlank()) continue
+                val label = link.text().trim()
+                val cleanLabel = when {
+                    label.isBlank() -> "Player"
+                    else -> label
+                }
+                playerLinks.add(PlayerLink(label = cleanLabel, url = href))
+            }
+            if (playerLinks.isEmpty()) continue
+
+            val streamingUrl = playerLinks.first().url
 
             // Parse episode info from text
             // Format: "28 – 1929 – Topolino – Steamboat Willie – VOE – VIDHIDE"
@@ -149,7 +165,8 @@ object Scraper {
                 title = "Ep. $epNum - $epTitle",
                 url = streamingUrl,
                 season = currentSeason,
-                number = epNum
+                number = epNum,
+                players = playerLinks
             ))
         }
 

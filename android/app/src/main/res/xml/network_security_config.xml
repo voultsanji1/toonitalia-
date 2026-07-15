@@ -4,6 +4,15 @@
         <domain includeSubdomains="true">toonitalia.xyz</domain>
         <domain includeSubdomains="true">uqload.is</domain>
         <domain includeSubdomains="true">chuckle-tube.com</domain>
+        <domain includeSubdomains="true">vidhideplus.com</domain>
+        <domain includeSubdomains="true">ryderjet.com</domain>
+        <domain includeSubdomains="true">luluvdo.com</domain>
+        <domain includeSubdomains="true">streamtape.com</domain>
+        <domain includeSubdomains="true">streamtape.me</domain>
+        <domain includeSubdomains="true">streamtape.net</domain>
+        <domain includeSubdomains="true">strcloud.link</domain>
+        <domain includeSubdomains="true">scloud.lol</domain>
+        <domain includeSubdomains="true">cloudfiler.me</domain>
     </domain-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>

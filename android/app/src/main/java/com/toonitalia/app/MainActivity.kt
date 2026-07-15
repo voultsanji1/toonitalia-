@@ -164,6 +164,13 @@ fun MainScreen() {
                         }
                         context.startActivity(intent)
                     },
+                    onPlayPlayerLink = { episode, playerLink ->
+                        val intent = Intent(context, PlayerActivity::class.java).apply {
+                            putExtra("video_url", playerLink.url)
+                            putExtra("title", "${episode.title} - ${playerLink.label}")
+                        }
+                        context.startActivity(intent)
+                    },
                     modifier = Modifier.padding(padding)
                 )
             }
@@ -354,10 +361,12 @@ fun DetailScreen(
     content: ContentItem,
     onBack: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
+    onPlayPlayerLink: (Episode, PlayerLink) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var detail by remember { mutableStateOf(content) }
     var isLoading by remember { mutableStateOf(content.episodes.isEmpty()) }
+    var expandedEpisode by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(content.url) {
@@ -460,7 +469,12 @@ fun DetailScreen(
             items(detail.episodes, key = { "${it.url}_${it.number}" }) { episode ->
                 EpisodeItem(
                     episode = episode,
-                    onClick = { onPlayEpisode(episode) }
+                    isExpanded = expandedEpisode == episode.number,
+                    onToggleExpand = {
+                        expandedEpisode = if (expandedEpisode == episode.number) null else episode.number
+                    },
+                    onClick = { onPlayEpisode(episode) },
+                    onPlayerClick = { playerLink -> onPlayPlayerLink(episode, playerLink) }
                 )
             }
         }
@@ -530,40 +544,100 @@ fun InfoChip(text: String) {
 @Composable
 fun EpisodeItem(
     episode: Episode,
-    onClick: () -> Unit
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onClick: () -> Unit,
+    onPlayerClick: (PlayerLink) -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         shape = RoundedCornerShape(8.dp),
         color = Color(0xFF1A1A2E)
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.PlayCircle,
-                contentDescription = null,
-                tint = Color(0xFF6C63FF),
-                modifier = Modifier.size(36.dp)
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                episode.title,
-                color = Color.White,
-                fontSize = 14.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = Color.Gray
-            )
+        Column {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = {
+                        if (episode.players.size > 1) {
+                            onToggleExpand()
+                        } else {
+                            onClick()
+                        }
+                    }),
+                color = Color.Transparent
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.PlayCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF6C63FF),
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        episode.title,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (episode.players.size > 1) {
+                        Icon(
+                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = Color.Gray
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color.Gray
+                        )
+                    }
+                }
+            }
+
+            if (isExpanded && episode.players.size > 1) {
+                Column(
+                    modifier = Modifier.padding(start = 48.dp, end = 12.dp, bottom = 12.dp)
+                ) {
+                    episode.players.forEach { player ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                                .clickable { onPlayerClick(player) },
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF2A2A4A)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color(0xFF03DAC5),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    player.label,
+                                    color = Color.White,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
