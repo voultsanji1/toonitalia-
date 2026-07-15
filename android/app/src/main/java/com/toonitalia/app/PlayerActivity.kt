@@ -402,7 +402,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun playVideoWithReferer(url: String, referer: String) {
         val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setRequestProperty("Referer", referer)
+            .setDefaultRequestProperties(mapOf("Referer" to referer))
 
         val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
             .createMediaSource(MediaItem.fromUri(Uri.parse(url)))
