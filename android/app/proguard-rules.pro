@@ -14,7 +14,6 @@
 
 # Jsoup null-safety annotations (not on classpath)
 -dontwarn org.jspecify.**
-
 # Keep names for reflection
 -keepnames class * implements java.io.Serializable
 -keepnames class * implements android.os.Parcelable
