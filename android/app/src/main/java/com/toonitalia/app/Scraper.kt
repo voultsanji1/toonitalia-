@@ -14,36 +14,33 @@ object Scraper {
         val doc = getDoc(BASE_URL)
         val sections = mutableListOf<CategorySection>()
 
-        val h2Elements = doc.select("h2")
-        for (h2 in h2Elements) {
-            val title = h2.text()
-            if (title.contains("Ultimi Aggiornamenti") ||
-                title.contains("Anime") ||
-                title.contains("Serie TV") ||
-                title.contains("Film Animazione")
-            ) {
-                val items = mutableListOf<ContentItem>()
-                var sibling = h2.nextElementSibling()
-                while (sibling != null && sibling.tagName() != "h2") {
-                    for (a in sibling.select("a[href]")) {
-                        val href = a.attr("href")
-                        val itemTitle = a.text()
-                        val img = a.selectFirst("img")
-                        val imageUrl = img?.attr("src") ?: ""
+        // Homepage uses custom layout: .col contains h2 headers and .item divs
+        // Each .item has an <a class="card-link"> with <img> and <span class="title">
+        val cols = doc.select(".col")
+        for (col in cols) {
+            val h2 = col.selectFirst("h2")
+            val title = h2?.text()?.replace(Regex("^[🔥⚡🎬📺]\\s*"), "")?.trim() ?: continue
+            if (title.isBlank()) continue
 
-                        if (itemTitle.isNotBlank() && href.startsWith(BASE_URL) && href != BASE_URL) {
-                            items.add(ContentItem(
-                                title = itemTitle,
-                                url = href,
-                                image = imageUrl
-                            ))
-                        }
-                    }
-                    sibling = sibling.nextElementSibling()
+            val items = mutableListOf<ContentItem>()
+            for (item in col.select(".item")) {
+                val link = item.selectFirst("a[href]")
+                val href = link?.attr("href") ?: continue
+                val img = item.selectFirst("img")
+                val imageUrl = img?.attr("src") ?: ""
+                val itemTitle = item.selectFirst(".title")?.text()?.trim()
+                    ?: link.text().trim()
+
+                if (itemTitle.isNotBlank() && href.startsWith(BASE_URL) && href != BASE_URL) {
+                    items.add(ContentItem(
+                        title = itemTitle,
+                        url = href,
+                        image = imageUrl
+                    ))
                 }
-                if (items.isNotEmpty()) {
-                    sections.add(CategorySection(title = title, items = items))
-                }
+            }
+            if (items.isNotEmpty()) {
+                sections.add(CategorySection(title = title, items = items))
             }
         }
         return sections
@@ -54,24 +51,42 @@ object Scraper {
         val items = mutableListOf<ContentItem>()
         val seen = mutableSetOf<String>()
 
-        for (a in doc.select("article a[href], .post a[href], h2 a[href], h3 a[href]")) {
+        // Category pages use .catlist-box ul li a (text-only links, no images)
+        for (a in doc.select(".catlist-box ul li a[href]")) {
             val href = a.attr("href")
-            val title = a.text()
-            val img = a.selectFirst("img")
-            val imageUrl = img?.attr("src") ?: ""
+            val title = a.text().trim()
 
             if (title.isNotBlank() && href.startsWith(BASE_URL) &&
-                href != "$BASE_URL/$categorySlug/" && !seen.contains(href)
+                !seen.contains(href)
             ) {
                 seen.add(href)
                 items.add(ContentItem(
                     title = title,
                     url = href,
-                    image = imageUrl,
+                    image = "",
                     categorySlug = categorySlug
                 ))
             }
         }
+
+        // Fetch OG images in background for first batch
+        if (items.isNotEmpty()) {
+            val toFetch = items.take(40)
+            for (item in toFetch) {
+                try {
+                    val detailDoc = getDoc(item.url)
+                    val ogImage = detailDoc.selectFirst("meta[property=og:image]")
+                    val imageUrl = ogImage?.attr("content") ?: ""
+                    if (imageUrl.isNotBlank()) {
+                        val idx = items.indexOf(item)
+                        if (idx >= 0) {
+                            items[idx] = item.copy(image = imageUrl)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         return items
     }
 
@@ -83,7 +98,7 @@ object Scraper {
         val titleEl = doc.selectFirst("h1")
         result["title"] = titleEl?.text() ?: ""
 
-        val content = doc.selectFirst("article") ?: doc.selectFirst("div.entry-content") ?: doc
+        val content = doc.selectFirst("article .entry-content") ?: doc.selectFirst("article") ?: doc
         val text = content.text()
 
         val fields = mapOf(
@@ -96,36 +111,56 @@ object Scraper {
         )
 
         for ((field, key) in fields) {
-            val pattern = Regex("$field:\\s*(.+)")
+            val pattern = Regex("$field\\s*:\\s*(.+)")
             pattern.find(text)?.let { result[key] = it.groupValues[1].trim() }
         }
 
         val img = content.selectFirst("img")
         val imageUrl = img?.attr("src") ?: ""
 
-        val tramaMatch = Regex("Trama:\\s*(.+?)(?=Scegli Stagione)", RegexOption.DOT_MATCHES_ALL)
+        val tramaMatch = Regex("Trama\\s*:\\s*(.+?)(?=Scegli Stagione|Episodi|\\$)", RegexOption.DOT_MATCHES_ALL)
             .find(text)
         val synopsis = tramaMatch?.groupValues?.get(1)?.trim() ?: ""
 
-        var seasonIndex = 0
-        for (a in doc.select("a[href]")) {
-            val href = a.attr("href")
-            val aText = a.text()
+        // Parse episodes - format: "01 - Title - PLAYER1 - PLAYER2"
+        // Look for links to uqload.is and chuckle-tube.com
+        for (p in doc.select("p")) {
+            val pText = p.text()
+            val links = p.select("a[href]")
+            if (links.isEmpty()) continue
 
-            if (aText.isNotBlank() && (href.contains("uqload.is") || href.contains("chuckle-tube.com"))) {
-                val epMatch = Regex("(\\d+)\\s*[–-]\\s*(.+)").find(aText)
-                val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                val epTitle = epMatch?.groupValues?.get(2)?.trim() ?: aText
-
-                episodes.add(Episode(
-                    title = aText,
-                    url = href,
-                    season = seasonIndex,
-                    number = epNum
-                ))
+            // Check if this paragraph contains streaming links
+            val hasStreamingLink = links.any {
+                val href = it.attr("href")
+                href.contains("uqload.is") || href.contains("chuckle-tube.com")
             }
+            if (!hasStreamingLink) continue
+
+            // Extract episode number and title from the paragraph text
+            // Format: "01 - Title - PLAYER1 - PLAYER2"
+            val cleaned = pText.replace("PLAYER1", "").replace("PLAYER2", "").trim()
+            val epMatch = Regex("^(\\d+)\\s*[–\\-]\\s*(.+?)\\s*[–\\-]\\s*$").find(cleaned)
+                ?: Regex("^(\\d+)\\s*[–\\-]\\s*(.+)").find(cleaned)
+
+            val epNum = epMatch?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
+            val epTitle = epMatch?.groupValues?.get(2)?.trim() ?: "Episodio $epNum"
+
+            // Use the first streaming link (uqload preferred, fallback to chuckle-tube)
+            val streamingUrl = links.firstOrNull {
+                it.attr("href").contains("uqload.is")
+            }?.attr("href") ?: links.firstOrNull {
+                it.attr("href").contains("chuckle-tube.com")
+            }?.attr("href") ?: continue
+
+            episodes.add(Episode(
+                title = "Ep. $epNum - $epTitle",
+                url = streamingUrl,
+                season = 0,
+                number = epNum
+            ))
         }
 
+        // Also try season tabs
         val seasons = doc.select("[id^=S]").map { it.id() }
 
         return ContentItem(

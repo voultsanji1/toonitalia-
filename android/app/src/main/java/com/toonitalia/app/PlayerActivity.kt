@@ -1,6 +1,5 @@
 package com.toonitalia.app
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -20,23 +19,23 @@ import java.util.regex.Pattern
 
 class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
-    private var playerView: PlayerView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         )
 
-        playerView = PlayerView(this)
+        val playerView = PlayerView(this)
         setContentView(playerView)
 
         player = ExoPlayer.Builder(this).build()
-        playerView?.player = player
+        playerView.player = player
 
         val videoUrl = intent.getStringExtra("video_url") ?: ""
         val title = intent.getStringExtra("title") ?: ""
@@ -50,7 +49,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun resolveAndPlay(url: String) {
-        if (url.contains("m3u8") || url.contains(".mp4") || url.contains(".mkv")) {
+        if (url.contains("m3u8") || url.contains(".mp4")) {
             playVideo(url)
             return
         }
@@ -58,12 +57,13 @@ class PlayerActivity : ComponentActivity() {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0.0.0 Mobile Safari/537.36")
+            .header("Referer", "https://toonitalia.xyz/")
             .build()
 
         NetworkModule.client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
-                    Toast.makeText(this@PlayerActivity, "Errore di connessione", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@PlayerActivity, "Errore di connessione: ${e.message}", Toast.LENGTH_SHORT).show()
                     finish()
                 }
             }
@@ -75,24 +75,7 @@ class PlayerActivity : ComponentActivity() {
                     response.close()
                 }
 
-                val patterns = listOf(
-                    Pattern.compile("file:\\s*\"(https?://[^\"]+\\.m3u8[^\"]*)\""),
-                    Pattern.compile("file:\\s*\"(https?://[^\"]+\\.(mp4|mkv|avi)[^\"]*)\""),
-                    Pattern.compile("src:\\s*\"(https?://[^\"]+\\.(mp4|m3u8)[^\"]*)\""),
-                    Pattern.compile("(https?://[^\"]+\\.m3u8[^\"]*)"),
-                    Pattern.compile("(https?://[^\"]+\\.(mp4|mkv)[^\"]*)"),
-                    Pattern.compile("source.*?\"(https?://[^\"]+)\""),
-                    Pattern.compile("file.*?=.*?\"(https?://[^\"]+)\""),
-                )
-
-                var videoUrl: String? = null
-                for (pattern in patterns) {
-                    val matcher = pattern.matcher(html)
-                    if (matcher.find()) {
-                        videoUrl = matcher.group(1)
-                        break
-                    }
-                }
+                val videoUrl = extractVideoUrl(html)
 
                 runOnUiThread {
                     if (videoUrl != null) {
@@ -109,12 +92,53 @@ class PlayerActivity : ComponentActivity() {
         })
     }
 
+    private fun extractVideoUrl(html: String): String? {
+        // Common patterns for video embeds
+        val patterns = listOf(
+            // uqload / chuckle-tube patterns
+            Pattern.compile("\\{\\s*file\\s*:\\s*\"(https?://[^\"]+)\""),
+            Pattern.compile("file\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
+            Pattern.compile("src\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
+            Pattern.compile("source\\s*:\\s*\"(https?://[^\"]+)\""),
+            Pattern.compile("\"(https?://[^\"]+\\.m3u8[^\"]*)\""),
+            Pattern.compile("'(https?://[^\']+\\.m3u8[^\']*)'"),
+            Pattern.compile("\"(https?://[^\"]+\\.(mp4|mkv|avi)[^\"]*)\""),
+            Pattern.compile("'(https?://[^\']+\\.(mp4|mkv)[^\']*)'"),
+            // Generic patterns
+            Pattern.compile("videoUrl\\s*=\\s*\"(https?://[^\"]+)\""),
+            Pattern.compile("video_url\\s*=\\s*\"(https?://[^\"]+)\""),
+            Pattern.compile("file:\\s*\"(https?://[^\"]+)\""),
+        )
+
+        for (pattern in patterns) {
+            val matcher = pattern.matcher(html)
+            if (matcher.find()) {
+                val url = matcher.group(1)
+                if (url != null && (url.contains("m3u8") || url.contains(".mp4") || url.contains(".mkv"))) {
+                    return url
+                }
+            }
+        }
+
+        // Try iframe src
+        val iframePattern = Pattern.compile("<iframe[^>]+src=\"(https?://[^\"]+)\"")
+        val iframeMatcher = iframePattern.matcher(html)
+        while (iframeMatcher.find()) {
+            val iframeSrc = iframeMatcher.group(1)
+            if (iframeSrc != null && (iframeSrc.contains("uqload") || iframeSrc.contains("chuckle") || iframeSrc.contains("stream"))) {
+                return iframeSrc
+            }
+        }
+
+        return null
+    }
+
     private fun playVideo(url: String) {
         val mediaItem = MediaItem.fromUri(Uri.parse(url))
         player?.setMediaItem(mediaItem)
         player?.prepare()
         player?.playWhenReady = true
-        
+
         player?.addListener(object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 runOnUiThread {
@@ -133,6 +157,7 @@ class PlayerActivity : ComponentActivity() {
         player?.pause()
     }
 
+    @Suppress("DEPRECATION")
     override fun onResume() {
         super.onResume()
         window.decorView.systemUiVisibility = (

@@ -85,7 +85,6 @@ fun MainScreen() {
     var currentScreen by remember { mutableStateOf("home") }
     var selectedContent by remember { mutableStateOf<ContentItem?>(null) }
     var searchQuery by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val isTv = ToonItaliaApp.isTV(context)
 
@@ -103,13 +102,13 @@ fun MainScreen() {
                     containerColor = Color(0xFF1A1A2E)
                 ),
                 actions = {
-                    IconButton(onClick = { currentScreen = "crash" }) {
+                    IconButton(onClick = { selectedContent = null; currentScreen = "crash" }) {
                         Icon(Icons.Default.BugReport, "Crash Logs")
                     }
-                    IconButton(onClick = { currentScreen = "search" }) {
+                    IconButton(onClick = { selectedContent = null; currentScreen = "search" }) {
                         Icon(Icons.Default.Search, "Search")
                     }
-                    IconButton(onClick = { currentScreen = "home" }) {
+                    IconButton(onClick = { selectedContent = null; currentScreen = "home" }) {
                         Icon(Icons.Default.Home, "Home")
                     }
                 }
@@ -121,32 +120,32 @@ fun MainScreen() {
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.Home, "Home") },
                         label = { Text("Home") },
-                        selected = currentScreen == "home",
-                        onClick = { currentScreen = "home" }
+                        selected = currentScreen == "home" && selectedContent == null,
+                        onClick = { selectedContent = null; currentScreen = "home" }
                     )
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.Animation, "Anime") },
                         label = { Text("Anime") },
-                        selected = currentScreen == "anime-ita",
-                        onClick = { currentScreen = "anime-ita" }
+                        selected = currentScreen == "anime-ita" && selectedContent == null,
+                        onClick = { selectedContent = null; currentScreen = "anime-ita" }
                     )
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.Subtitles, "Sub-Ita") },
                         label = { Text("Sub-Ita") },
-                        selected = currentScreen == "contatti",
-                        onClick = { currentScreen = "contatti" }
+                        selected = currentScreen == "contatti" && selectedContent == null,
+                        onClick = { selectedContent = null; currentScreen = "contatti" }
                     )
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.Movie, "Film") },
                         label = { Text("Film") },
-                        selected = currentScreen == "film-animazione",
-                        onClick = { currentScreen = "film-animazione" }
+                        selected = currentScreen == "film-animazione" && selectedContent == null,
+                        onClick = { selectedContent = null; currentScreen = "film-animazione" }
                     )
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.Tv, "Serie TV") },
                         label = { Text("Serie TV") },
-                        selected = currentScreen == "serie-tv",
-                        onClick = { currentScreen = "serie-tv" }
+                        selected = currentScreen == "serie-tv" && selectedContent == null,
+                        onClick = { selectedContent = null; currentScreen = "serie-tv" }
                     )
                 }
             }
@@ -206,16 +205,14 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    sections = Scraper.scrapeHomepage()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        withContext(Dispatchers.IO) {
+            try {
+                sections = Scraper.scrapeHomepage()
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            isLoading = false
         }
+        isLoading = false
     }
 
     if (isLoading) {
@@ -228,13 +225,13 @@ fun HomeScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            items(sections) { section ->
+            items(sections, key = { it.title }) { section ->
                 SectionHeader(title = section.title)
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp)
                 ) {
-                    items(section.items) { item ->
+                    items(section.items, key = { it.url }) { item ->
                         ContentCard(
                             item = item,
                             onClick = { onItemSelected(item) }
@@ -258,16 +255,15 @@ fun CategoryScreen(
 
     LaunchedEffect(categorySlug) {
         isLoading = true
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    items = Scraper.scrapeContentList(categorySlug)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        items = emptyList()
+        withContext(Dispatchers.IO) {
+            try {
+                items = Scraper.scrapeContentList(categorySlug)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            isLoading = false
         }
+        isLoading = false
     }
 
     if (isLoading) {
@@ -276,13 +272,13 @@ fun CategoryScreen(
         }
     } else {
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
+            columns = GridCells.Adaptive(minSize = 150.dp),
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(items) { item ->
+            items(items, key = { it.url }) { item ->
                 ContentCard(
                     item = item,
                     onClick = { onItemSelected(item) }
@@ -320,6 +316,8 @@ fun SearchScreen(
                         }
                         isSearching = false
                     }
+                } else {
+                    results = emptyList()
                 }
             },
             label = { Text("Cerca anime, film, serie...") },
@@ -336,11 +334,11 @@ fun SearchScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 160.dp),
+                columns = GridCells.Adaptive(minSize = 150.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(results) { item ->
+                items(results, key = { it.url }) { item ->
                     ContentCard(
                         item = item,
                         onClick = { onItemSelected(item) }
@@ -364,16 +362,14 @@ fun DetailScreen(
 
     LaunchedEffect(content.url) {
         if (content.episodes.isEmpty()) {
-            scope.launch {
-                withContext(Dispatchers.IO) {
-                    try {
-                        detail = Scraper.scrapeDetail(content.url)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+            withContext(Dispatchers.IO) {
+                try {
+                    detail = Scraper.scrapeDetail(content.url)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                isLoading = false
             }
+            isLoading = false
         }
     }
 
@@ -461,7 +457,7 @@ fun DetailScreen(
                 }
             }
 
-            items(detail.episodes) { episode ->
+            items(detail.episodes, key = { "${it.url}_${it.number}" }) { episode ->
                 EpisodeItem(
                     episode = episode,
                     onClick = { onPlayEpisode(episode) }
@@ -580,17 +576,21 @@ fun CrashScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                val file = context.getFileStreamPath("crash_log.txt")
-                if (file.exists()) {
-                    crashLog = file.readText()
+        withContext(Dispatchers.IO) {
+            val file = context.getFileStreamPath("crash_log.txt")
+            if (file.exists()) {
+                crashLog = file.readText()
+            } else {
+                val ext = context.getExternalFilesDir(null)
+                val extFile = ext?.let { java.io.File(it, "crash_log.txt") }
+                if (extFile != null && extFile.exists()) {
+                    crashLog = extFile.readText()
                 } else {
                     crashLog = "Nessun crash registrato."
                 }
             }
-            isLoading = false
         }
+        isLoading = false
     }
 
     Column(
@@ -602,11 +602,13 @@ fun CrashScreen(modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("🐛 Crash Logs", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Crash Logs", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
             IconButton(onClick = {
                 scope.launch {
                     withContext(Dispatchers.IO) {
                         context.getFileStreamPath("crash_log.txt").delete()
+                        val ext = context.getExternalFilesDir(null)
+                        ext?.let { java.io.File(it, "crash_log.txt").delete() }
                     }
                     crashLog = "Log cancellato."
                 }
