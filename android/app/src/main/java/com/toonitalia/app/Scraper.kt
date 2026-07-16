@@ -290,7 +290,7 @@ object Scraper {
         var synopsis = ""
         var grab = false
         for (el in content.select("> *")) {
-            val name = el.name()
+            val name = el.tagName()
             if (name == "h3" || name == "h2") {
                 val txt = el.text()
                 if ("Trama" in txt) { grab = true; continue }
@@ -309,7 +309,7 @@ object Scraper {
         var currentSeason = ""
         var fallbackCounter = 1
         for (el in content.select("> *")) {
-            val name = el.name()
+            val name = el.tagName()
             if (name == "h3" || name == "h2") {
                 val txt = el.text().trim()
                 if (Regex("\\d+\\s*[°º]\\s*Stagione", RegexOption.IGNORE_CASE).containsMatchIn(txt)) {
