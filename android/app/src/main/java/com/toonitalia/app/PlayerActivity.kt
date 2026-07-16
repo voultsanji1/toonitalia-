@@ -9,6 +9,8 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -17,21 +19,28 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.Request
-import okhttp3.Response
-import java.io.IOException
-import java.util.regex.Pattern
+import java.io.ByteArrayInputStream
 
 class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var webView: WebView? = null
     private var useWebView = false
+
+    // Lightweight ad/tracker blocker: any request whose host matches these
+    // patterns is short-circuited so the embedded players load cleaner.
+    private val adHostPatterns = listOf(
+        "doubleclick.net", "googleadservices.com", "googlesyndication.com",
+        "google-analytics.com", "googletagmanager.com", "adservice.google.com",
+        "pagead2.googlesyndication.com", "adsystem.com", "adnxs.com", "popads.net",
+        "propellerads.com", "outbrain.com", "taboola.com", "scorecardresearch.com",
+        "criteo.com", "pubmatic.com", "rubiconproject.com", "openx.net", "amazon-adsystem.com",
+        "2mdn.net", "moatads.com", "adsrvr.org", "smartadserver.com", "innity.com",
+        "popcash.net", "vidoza", "exoClick".lowercase(), "clickbank", "mgid.com",
+        "revcontent.com", "shareus", "ytimg.com", "banner", "ads.", ".ads", "ad.", "tracker",
+        "analytics", "beacons", "pixel", "tag.", "counter"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,40 +65,24 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun isDirectStream(url: String): Boolean {
-        return url.contains(".m3u8") || url.contains(".mp4") || url.contains(".mkv") ||
-                url.contains(".webm")
-    }
-
-    private fun isEmbedHost(url: String): Boolean {
-        return url.contains("uqload") || url.contains("chuckle-tube") ||
-                url.contains("voe") || url.contains("vidhideplus") ||
-                url.contains("ryderjet") || url.contains("luluvdo") ||
-                url.contains("streamtape") || url.contains("strcloud") ||
-                url.contains("scloud") || url.contains("supervideo") ||
-                url.contains("dood") || url.contains("mixdrop") ||
-                url.contains("filelions") || url.contains("streamwish") ||
-                url.contains("vidmoly") || url.contains("embedsb")
+        val lower = url.lowercase()
+        return lower.contains(".m3u8") || lower.contains(".mp4") || lower.contains(".mkv") ||
+                lower.contains(".webm") || lower.contains(".ts") || lower.contains(".mov")
     }
 
     private fun resolveAndPlay(url: String) {
-        // Direct streamable file: play with ExoPlayer.
+        // Direct streamable media file: play with ExoPlayer.
         if (isDirectStream(url)) {
             showExoPlayer()
             playVideo(url)
             return
         }
 
-        // Embed hosts use their own obfuscated players: load them in a WebView
-        // so the site's native player handles extraction/playback reliably.
-        if (isEmbedHost(url)) {
-            Toast.makeText(this, "Caricamento video...", Toast.LENGTH_SHORT).show()
-            showWebView(url)
-            return
-        }
-
-        // Unknown host: try to extract a direct link, fall back to WebView.
-        Toast.makeText(this, "Caricamento video...", Toast.LENGTH_SHORT).show()
-        resolveGeneric(url)
+        // Everything else (uqload, chuckle-tube, voe, vidhide, rpmplay, filelions,
+        // and any other embed host) loads inside a WebView so the site's own
+        // player handles extraction/playback. This catches every host, known or not.
+        Toast.makeText(this, "Caricamento player...", Toast.LENGTH_SHORT).show()
+        showWebView(url)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -106,6 +99,7 @@ class PlayerActivity : ComponentActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
                     "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+            @Suppress("DEPRECATION")
             pluginState = WebSettings.PluginState.ON
         }
         wv.webChromeClient = object : WebChromeClient() {
@@ -114,6 +108,20 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         wv.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val u = request?.url?.toString() ?: return null
+                if (isAdRequest(u)) {
+                    return WebResourceResponse(
+                        "text/plain", "utf-8",
+                        ByteArrayInputStream("".toByteArray())
+                    )
+                }
+                return null
+            }
+
             override fun onReceivedError(
                 view: WebView?,
                 errorCode: Int,
@@ -137,6 +145,11 @@ class PlayerActivity : ComponentActivity() {
         ))
     }
 
+    private fun isAdRequest(url: String): Boolean {
+        val lower = url.lowercase()
+        return adHostPatterns.any { it in lower }
+    }
+
     private fun showExoPlayer() {
         useWebView = false
         val playerView = PlayerView(this)
@@ -144,98 +157,6 @@ class PlayerActivity : ComponentActivity() {
         setContentView(playerView)
         player = ExoPlayer.Builder(this).build()
         playerView.player = player
-    }
-
-    private fun resolveGeneric(embedUrl: String) {
-        val request = Request.Builder()
-            .url(embedUrl)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0.0.0 Mobile Safari/537.36")
-            .header("Referer", "https://toonitalia.xyz/")
-            .header("Accept", "text/html,application/xhtml+xml")
-            .build()
-
-        NetworkModule.client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread {
-                    Toast.makeText(this@PlayerActivity, "Errore di connessione: ${e.message}", Toast.LENGTH_SHORT).show()
-                    finish()
-                }
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                val html = try { response.body?.string() ?: "" } finally { response.close() }
-                val videoUrl = extractGenericVideoUrl(html)
-                runOnUiThread {
-                    if (videoUrl != null) {
-                        showExoPlayer()
-                        playVideo(videoUrl)
-                    } else {
-                        // Could not extract a direct link: fall back to WebView.
-                        showWebView(embedUrl)
-                    }
-                }
-            }
-        })
-    }
-
-    private fun extractGenericVideoUrl(html: String): String? {
-        val patterns = listOf(
-            Pattern.compile("file\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4|mkv)[^\"]*)\""),
-            Pattern.compile("source\\s*:\\s*\"(https?://[^\"]+\\.(m3u8|mp4)[^\"]*)\""),
-            Pattern.compile("sources\\s*:\\s*\\[\\s*\"(https?://[^\"]+)\""),
-            Pattern.compile("sources\\s*:\\s*\\[\\s*\\{\\s*file\\s*:\\s*\"(https?://[^\"]+)\""),
-            Pattern.compile("[\"'](https?://[^\"']+\\.m3u8[^\"']*)[\"']"),
-            Pattern.compile("[\"'](https?://[^\"']+\\.(mp4|mkv|avi)[^\"']*)[\"']"),
-            Pattern.compile("src\\s*:\\s*[\"']?(https?://[^\"'\\s]+\\.(m3u8|mp4))"),
-            Pattern.compile("file:[\"']?(https?://[^\"'\\s,]+)"),
-            Pattern.compile("video_url\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
-            Pattern.compile("videoUrl\\s*[=:]\\s*[\"']?(https?://[^\"'\\s]+)"),
-            Pattern.compile("[\"'](https?://[^\"'\\s]*(?:s3|storage|stream|cdn|server\\d*)[^\"'\\s]*\\.(m3u8|mp4)[^\"'\\s]*)[\"']")
-        )
-        for (p in patterns) {
-            val m = p.matcher(html)
-            if (m.find()) {
-                val url = m.group(1)
-                if (url != null && url.length > 10 && !url.contains("example.com")) return url
-            }
-        }
-
-        val packedMatch = Regex("eval\\(function\\(p,a,c,k,e,d\\).+?\\)").find(html)
-        if (packedMatch != null) {
-            try {
-                val unpacked = unpackPackedJs(packedMatch.value)
-                if (unpacked != null) {
-                    val urlMatch = Regex("[\"'](https?://[^\"']+\\.(m3u8|mp4|mkv)[^\"']*)[\"']").find(unpacked)
-                    if (urlMatch != null) return urlMatch.groupValues[1]
-                }
-            } catch (_: Exception) {}
-        }
-
-        return null
-    }
-
-    private fun unpackPackedJs(packed: String): String? {
-        return try {
-            val base62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            val args = Regex("}\\('(.+)',(\\d+),(\\d+),'([^']+)'\\.split\\('\\|'\\)\\)").find(packed)
-                ?: return null
-            val p = args.groupValues[1]
-            val a = args.groupValues[2].toInt()
-            val c = args.groupValues[3].toInt()
-            val k = args.groupValues[4].split("|")
-            val d = mutableMapOf<String, String>()
-            var idx = c
-            while (idx > 0) {
-                idx--
-                val key = if (idx < k.size) k[idx] else base62[idx % base62.length].toString()
-                d[base62[idx].toString()] = key
-            }
-            var result = p
-            for ((key, value) in d) {
-                result = result.replace(Regex("\\b$key\\b"), value)
-            }
-            result
-        } catch (_: Exception) { null }
     }
 
     private fun playVideo(url: String) {

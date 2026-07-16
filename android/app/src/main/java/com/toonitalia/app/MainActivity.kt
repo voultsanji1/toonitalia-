@@ -324,6 +324,24 @@ fun SearchScreen(
     var isSearching by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // Re-run the search whenever the screen is (re)entered with a non-empty query.
+    // This fixes the "nessun risultato" bug when coming back from a detail page.
+    LaunchedEffect(query) {
+        if (query.length >= 2) {
+            isSearching = true
+            withContext(Dispatchers.IO) {
+                try {
+                    results = Scraper.search(query)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            isSearching = false
+        } else {
+            results = emptyList()
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         OutlinedTextField(
             value = query,
