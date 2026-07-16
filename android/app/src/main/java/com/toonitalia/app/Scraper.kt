@@ -37,14 +37,16 @@ object Scraper {
         return homepageImageCache[url.trimEnd('/')] ?: ""
     }
 
-    fun scrapeHomepage(): List<CategorySection> {
+    suspend fun scrapeHomepage(): List<CategorySection> {
         val doc = getDoc(BASE_URL)
         val sections = mutableListOf<CategorySection>()
 
         val cols = doc.select(".col")
         for (col in cols) {
             val h2 = col.selectFirst("h2")
-            val title = h2?.text()?.replace(Regex("^[\u0000-\u001F\u200B-\u200D\uFEFF\u20E3\u2600-\u27BF\u{1F000}-\u{1FFFF}]\\s*"), "")?.trim() ?: continue
+            val title = h2?.text()
+                ?.replace(Regex("^[\\u0000-\\u001F\\u200B-\\u200D\\uFEFF\\u20E3\\u2600-\\u27BF\\u{1F000}-\\u{1FFFF}]\\s*"), "")
+                ?.trim() ?: continue
             if (title.isBlank()) continue
 
             val items = mutableListOf<ContentItem>()
@@ -71,7 +73,7 @@ object Scraper {
         return sections
     }
 
-    fun scrapeContentList(categorySlug: String): List<ContentItem> {
+    suspend fun scrapeContentList(categorySlug: String): List<ContentItem> {
         val doc = getDoc("$BASE_URL/$categorySlug/")
         val items = mutableListOf<ContentItem>()
         val seen = mutableSetOf<String>()
@@ -267,38 +269,74 @@ object Scraper {
         )
     }
 
-    fun search(query: String): List<ContentItem> {
+    suspend fun search(query: String): List<ContentItem> {
         val results = mutableListOf<ContentItem>()
         try {
             val encoded = URLEncoder.encode(query, "UTF-8")
             val doc = getDoc("$BASE_URL/?s=$encoded")
+            buildHomepageCache()
+            val rawItems = mutableListOf<ContentItem>()
             for (article in doc.select("article")) {
                 val h2 = article.selectFirst("h2")
                 val link = h2?.selectFirst("a[href]") ?: continue
                 val href = link.attr("href")
                 val title = link.text().trim()
                 if (title.isNotBlank() && href.startsWith(BASE_URL) &&
-                    !href.contains("/?s=") && !href.contains("/category/") && !href.contains("/author/")) {
-                    val img = article.selectFirst("img")
-                    var imageUrl = img?.attr("src") ?: ""
+                    !href.contains("/?s=") && !href.contains("/category/") &&
+                    !href.contains("/author/") && !href.contains("/tag/")) {
+                    // Search result cards have no inline image: try the homepage cache first.
+                    var imageUrl = getImageForUrl(href)
                     if (imageUrl.isBlank()) {
-                        val schemaScript = article.selectFirst("script[type=application/ld+json]")
-                        if (schemaScript != null) {
-                            val text = schemaScript.html()
-                            val thumbMatch = Regex("\"thumbnailUrl\"\\s*:\\s*\"([^\"]+)\"").find(text)
-                            imageUrl = thumbMatch?.groupValues?.get(1) ?: ""
+                        val img = article.selectFirst("img")
+                        imageUrl = img?.attr("src") ?: ""
+                        if (imageUrl.isBlank()) {
+                            val schemaScript = article.selectFirst("script[type=application/ld+json]")
+                            if (schemaScript != null) {
+                                val text = schemaScript.html()
+                                val thumbMatch = Regex("\"thumbnailUrl\"\\s*:\\s*\"([^\"]+)\"").find(text)
+                                imageUrl = thumbMatch?.groupValues?.get(1) ?: ""
+                            }
+                        }
+                        if (imageUrl.isBlank()) {
+                            val metaImg = article.selectFirst("meta[property=og:image]")
+                            imageUrl = metaImg?.attr("content") ?: ""
                         }
                     }
-                    if (imageUrl.isBlank()) {
-                        val metaImg = article.selectFirst("meta[property=og:image]")
-                        imageUrl = metaImg?.attr("content") ?: ""
-                    }
-                    results.add(ContentItem(
-                        title = title,
-                        url = href,
-                        image = imageUrl
-                    ))
+                    rawItems.add(ContentItem(title = title, url = href, image = imageUrl))
                 }
+            }
+            results.addAll(rawItems)
+
+            // Fetch detail pages (in parallel) only for items still missing an image.
+            val needsFetch = rawItems.filter { it.image.isBlank() }.take(20)
+            if (needsFetch.isNotEmpty()) {
+                try {
+                    val fetched = runCatching {
+                        coroutineScope {
+                            needsFetch.chunked(5).map { chunk ->
+                                chunk.map { item ->
+                                    async(Dispatchers.IO) {
+                                        try {
+                                            val detailDoc = getDoc(item.url)
+                                            val img = detailDoc.selectFirst("article .entry-content img")
+                                                ?: detailDoc.selectFirst("article img")
+                                                ?: detailDoc.selectFirst(".entry-content img")
+                                            val imgUrl = img?.attr("src") ?: ""
+                                            if (imgUrl.isNotBlank()) item to imgUrl else null
+                                        } catch (_: Exception) { null }
+                                    }
+                                }.awaitAll().filterNotNull()
+                            }.flatten()
+                        }
+                    }.getOrDefault(emptyList())
+
+                    for ((item, imgUrl) in fetched) {
+                        val idx = results.indexOfFirst { it.url == item.url }
+                        if (idx >= 0) {
+                            results[idx] = results[idx].copy(image = imgUrl)
+                        }
+                    }
+                } catch (_: Exception) {}
             }
         } catch (e: Exception) {
             e.printStackTrace()

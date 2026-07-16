@@ -228,7 +228,7 @@ class PlayerActivity : ComponentActivity() {
             while (idx > 0) {
                 idx--
                 val key = if (idx < k.size) k[idx] else base62[idx % base62.length].toString()
-                d[base62[idx]] = key
+                d[base62[idx].toString()] = key
             }
             var result = p
             for ((key, value) in d) {
