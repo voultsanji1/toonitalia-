@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlin.text.RegexOption
 import org.jsoup.Jsoup
 import java.net.URLEncoder
 
@@ -195,7 +196,7 @@ object Scraper {
         // segment looks like: "929 – Titolo episodio – PLAYER1 – PLAYER2" or "VOE – VIDHIDE" (film)
         val segDoc = Jsoup.parse("<p>$segment</p>")
         val segEl = segDoc.selectFirst("p") ?: return null
-        val links = segEl.select("a[href]").filter { isStreamingHref(it.attr("href")) }
+        val links = segEl.select("a[href]").filter { a -> isStreamingHref(a.attr("href")) }
         if (links.isEmpty()) return null
 
         val playerLinks = links.map { a ->
@@ -216,7 +217,7 @@ object Scraper {
         val epTitle = if (numMatch != null) {
             text.removePrefix(numMatch.groupValues[1]).replace(Regex("^\\s*[–-]\\s*"), "").trim()
         } else {
-            text.replace(Regex("(?i)link\\s*streaming\\s*:", ""), "")
+            text.replace(Regex("link\\s*streaming\\s*:", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("^[\\s–-]+"), "")
                 .trim()
         }.ifBlank { seasonLabel.ifBlank { "Streaming" } }
@@ -288,8 +289,8 @@ object Scraper {
         // --- Synopsis (between "Trama:" and the next relevant heading) ---
         var synopsis = ""
         var grab = false
-        for (el in content.children()) {
-            val name = el.name ?: continue
+        for (el in content.select("> *")) {
+            val name = el.name()
             if (name == "h3" || name == "h2") {
                 val txt = el.text()
                 if ("Trama" in txt) { grab = true; continue }
@@ -307,8 +308,8 @@ object Scraper {
         // --- Episodes: walk direct children, split multi-episode <p> blocks ---
         var currentSeason = ""
         var fallbackCounter = 1
-        for (el in content.children()) {
-            val name = el.name ?: continue
+        for (el in content.select("> *")) {
+            val name = el.name()
             if (name == "h3" || name == "h2") {
                 val txt = el.text().trim()
                 if (Regex("\\d+\\s*[°º]\\s*Stagione", RegexOption.IGNORE_CASE).containsMatchIn(txt)) {
@@ -320,7 +321,7 @@ object Scraper {
             }
             if (name != "p") continue
 
-            val links = el.select("a[href]").filter { isStreamingHref(it.attr("href")) }
+            val links = el.select("a[href]").filter { a -> isStreamingHref(a.attr("href")) }
             if (links.isEmpty()) continue
 
             val raw = el.text()
