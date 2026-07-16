@@ -35,28 +35,21 @@ def scrape_content_list(category_slug):
     url = f"{BASE_URL}/{category_slug}/"
     soup = get_soup(url)
     items = []
+    seen = set()
 
-    for link in soup.select("article a, .post a, h2 a, h3 a"):
+    # Category pages list every title in .catlist-box > ul > li > a[href].
+    for link in soup.select(".catlist-box ul li a[href]"):
         href = link.get("href", "")
         title = link.get_text(strip=True)
-        img = link.find("img")
-        image_url = img["src"] if img and img.get("src") else ""
-
-        if href and title and BASE_URL in href and href != url:
+        if title and BASE_URL in href and href not in seen:
+            seen.add(href)
             items.append({
                 "title": title,
                 "url": href,
-                "image": image_url,
+                "image": "",
                 "category": category_slug,
             })
-
-    seen = set()
-    unique = []
-    for item in items:
-        if item["url"] not in seen:
-            seen.add(item["url"])
-            unique.append(item)
-    return unique
+    return items
 
 
 def scrape_homepage():
@@ -64,28 +57,59 @@ def scrape_homepage():
     sections = {}
     current_section = None
 
-    for h2 in soup.find_all("h2"):
+    # The homepage is laid out as a series of .col blocks, each with an <h2>
+    # section title and a list of .item cards (.card-link > img + .title span).
+    for col in soup.select(".col"):
+        h2 = col.find("h2")
+        if not h2:
+            continue
         text = h2.get_text(strip=True)
-        if any(k in text for k in ["Ultimi Aggiornamenti", "Anime", "Serie TV", "Film Animazione"]):
-            current_section = text
-            sections[current_section] = []
+        # strip a leading emoji / decorative char if present
+        text = re.sub(r"^[\u0000-\u001F\u200B-\u200D\uFEFF\u20E3\u2600-\u27BF\U0001F000-\U0001FFFF]\s*", "", text).strip()
+        if not text:
+            continue
+        current_section = text
+        sections[current_section] = []
 
-        if current_section:
-            parent = h2.find_next_sibling()
-            if parent:
-                for a in parent.find_all("a", href=True):
-                    href = a["href"]
-                    title = a.get_text(strip=True)
-                    img = a.find("img")
-                    image_url = img["src"] if img and img.get("src") else ""
-                    if title and BASE_URL in href:
-                        sections[current_section].append({
-                            "title": title,
-                            "url": href,
-                            "image": image_url,
-                        })
+        for item in col.select(".item"):
+            link = item.find("a", href=True)
+            if not link:
+                continue
+            href = link["href"]
+            img = item.find("img")
+            image_url = img["src"] if img and img.get("src") else ""
+            title_el = item.find(class_="title")
+            title = title_el.get_text(strip=True) if title_el else link.get_text(strip=True)
+            if title and BASE_URL in href and href != BASE_URL:
+                sections[current_section].append({
+                    "title": title,
+                    "url": href,
+                    "image": image_url,
+                })
+
+    # Fallback: if the layout changed, build sections from the category pages.
+    if not sections:
+        for slug, name in scrape_categories().items():
+            try:
+                items = scrape_content_list(slug)[:30]
+                if items:
+                    sections[name] = items
+            except Exception:
+                pass
 
     return sections
+
+
+HOSTS = [
+    "chuckle-tube.com", "vidhideplus.com", "uqload.is", "uqload.com",
+    "uqload.bz", "uqload.to", "voe.sx", "ryderjet.com", "luluvdo.com",
+    "streamtape", "strcloud.link", "scloud.lol", "supervideo", "dood",
+    "mixdrop", "filelions", "streamwish", "vidmoly", "embedsb",
+]
+
+
+def _is_streaming_link(href):
+    return any(h in href for h in HOSTS)
 
 
 def scrape_detail(url):
@@ -114,23 +138,71 @@ def scrape_detail(url):
     if img_tag and img_tag.get("src"):
         result["image"] = img_tag["src"]
 
-    trama_match = re.search(r"Trama:\s*(.+?)(?=\n\n|Scegli Stagione)", text, re.DOTALL)
+    trama_match = re.search(r"Trama:\s*(.+?)(?=\n\n|Company|Episodi|Stagione)", text, re.DOTALL)
     if trama_match:
         result["synopsis"] = trama_match.group(1).strip()
 
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        title = a.get_text(strip=True)
-        if title and ("uqload.is" in href or "chuckle-tube.com" in href):
-            result["episodes"].append({
-                "title": title,
-                "url": href,
+    current_season = 0
+    episodes = []
+    # Episode blocks live inside <p> elements (often nested inside a div), so we
+    # walk every <p> descendant, not just direct children.
+    for el in content.find_all("p"):
+        # Track season headers that appear before this paragraph.
+        prev = el.find_previous(["h2", "h3"])
+        if prev is not None:
+            sm = re.search(r"(\d+)\s*[°º]\s*Stagione", prev.get_text())
+            if sm:
+                current_season = int(sm.group(1))
+
+        for part_html in re.split(r"<br\s*/?>", str(el), flags=re.IGNORECASE):
+            seg = BeautifulSoup(f"<p>{part_html}</p>", "lxml").find("p")
+            if not seg:
+                continue
+            links = seg.find_all("a", href=True)
+            if not links:
+                continue
+            if not any(_is_streaming_link(a["href"]) for a in links):
+                continue
+
+            player_links = []
+            for a in links:
+                href = a["href"]
+                if not href:
+                    continue
+                label = a.get_text(strip=True) or "Player"
+                player_links.append({"label": label, "url": href})
+            if not player_links:
+                continue
+
+            seg_text = seg.get_text()
+            clean_text = seg_text
+            for a in links:
+                clean_text = clean_text.replace(a.get_text(), "").strip()
+            clean_text = re.sub(r"\s*[–\-–]\s*$", "", clean_text).strip()
+            # Drop a trailing separator that may remain after the last link.
+            clean_text = re.sub(r"[–\-–]\s*$", "", clean_text).strip()
+
+            m1 = re.match(r"^(\d+)\s*[–-]\s*(\d{4})\s*[–-]\s*(.+?)\s*$", clean_text)
+            m2 = re.match(r"^(\d+)\s*[–-]\s*(.+?)\s*$", clean_text)
+            ep_num = int(m1.group(1)) if m1 else (int(m2.group(1)) if m2 else (len(episodes) + 1))
+            ep_title = (m1.group(3).strip() if m1 else (m2.group(2).strip() if m2 else f"Episodio {ep_num}"))
+
+            episodes.append({
+                "title": f"Ep. {ep_num} - {ep_title}",
+                "url": player_links[0]["url"],
+                "season": current_season,
+                "number": ep_num,
+                "players": player_links,
             })
 
-    season_headers = soup.find_all(id=re.compile(r"^S\d+"))
-    for header in season_headers:
-        season_name = header.get_text(strip=True) or header.get("id", "")
-        result["seasons"].append(season_name)
+    result["episodes"] = episodes
+
+    seasons = []
+    for s in content.select("[id^=S], a[name^=S]"):
+        sid = s.get("id") or s.get("name")
+        if sid:
+            seasons.append(sid)
+    result["seasons"] = list(dict.fromkeys(seasons))
 
     return result
 

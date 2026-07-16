@@ -1,0 +1,16 @@
+# Android build artifacts
+android/.gradle/
+android/**/build/
+*.apk
+*.aar
+local.properties
+
+# Python
+__pycache__/
+*.pyc
+scraper/cache/
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
